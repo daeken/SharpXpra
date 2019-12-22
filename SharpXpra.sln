@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharpXpra", "SharpXpra\SharpXpra.csproj", "{257087F8-87DC-464A-9E59-5FE2917B3C69}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{16B125C4-1E2E-448A-927E-BAF457715B41}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{257087F8-87DC-464A-9E59-5FE2917B3C69}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{257087F8-87DC-464A-9E59-5FE2917B3C69}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{257087F8-87DC-464A-9E59-5FE2917B3C69}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{257087F8-87DC-464A-9E59-5FE2917B3C69}.Release|Any CPU.Build.0 = Release|Any CPU
+		{16B125C4-1E2E-448A-927E-BAF457715B41}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{16B125C4-1E2E-448A-927E-BAF457715B41}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{16B125C4-1E2E-448A-927E-BAF457715B41}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{16B125C4-1E2E-448A-927E-BAF457715B41}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
