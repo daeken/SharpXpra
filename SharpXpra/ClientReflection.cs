@@ -35,9 +35,9 @@ namespace SharpXpra {
 			}
 		}
 
-		public static void AssertEqual(int a, int b) {
-			if(a != b)
-				throw new Exception("Assertion failed");
+		public static void AssertEqual(int got, int expected) {
+			if(got != expected)
+				throw new Exception($"Assertion failed; got {got} expected {expected}");
 		}
 	}
 }

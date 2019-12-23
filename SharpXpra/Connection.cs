@@ -36,10 +36,9 @@ namespace SharpXpra {
 			new Thread(() => {
 				try {
 					var header = new byte[8];
+					var aux = new Dictionary<byte, byte[]>();
 					while(true) {
-						Console.WriteLine("Reading packet...");
 						ReadAll(header);
-						Console.WriteLine($"Got header! 0x{header[0]:X2} 0x{header[1]:X2} 0x{header[2]:X2} 0x{header[3]:X2} 0x{header[4]:X2} 0x{header[5]:X2} 0x{header[6]:X2} 0x{header[7]:X2}");
 						if(header[0] != 'P')
 							throw new Exception();
 						var protoflags = (ProtocolFlags) header[1];
@@ -53,12 +52,17 @@ namespace SharpXpra {
 						ReadAll(buf);
 						if(compressionLevel != 0)
 							throw new NotSupportedException();
-						if(protoflags != ProtocolFlags.Rencode)
+						if(index == 0 && protoflags != ProtocolFlags.Rencode)
 							throw new NotSupportedException();
-						if(index != 0)
-							throw new NotImplementedException();
+						if(index != 0) {
+							aux[index] = buf;
+							continue;
+						}
 						if(!(Rencode.Decode(buf) is List<object> packet))
 							throw new NotSupportedException();
+						foreach(var kv in aux)
+							packet[kv.Key] = kv.Value;
+						aux.Clear();
 						IncomingPackets.Add(packet);
 					}
 				} catch(OperationCanceledException) { }
