@@ -33,7 +33,7 @@ namespace SharpXpra {
 		void HandleNewWindow(int wid, int x, int y, int w, int h, Dictionary<object, object> metadata,
 			Dictionary<object, object> clientProperties) {
 			Console.WriteLine($"New window! {wid} @ {x}x{y} ({w}x{h}) {metadata.ToPrettyString()}");
-			Send("map-window", wid, x, y, w, h);
+			Send("map-window", wid, x + 100000, y + 100000, w, h);
 			Send("buffer-refresh", wid, null, 100);
 		}
 
@@ -42,7 +42,7 @@ namespace SharpXpra {
 		}
 
 		[Handler("ping")]
-		void HandlePing(int time, object uuid) =>
+		void HandlePing(long time, long uuid) =>
 			Send("ping_echo", time, 0, 0, 0, -1);
 
 		[Handler("draw")]

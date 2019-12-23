@@ -53,7 +53,7 @@ namespace SharpXpra {
 						var temp = new byte[4];
 						for(var i = 0; i < 4; ++i)
 							temp[3 - i] = data[pos++];
-						return BitConverter.ToSingle(temp, 0);
+						return (double) BitConverter.ToSingle(temp, 0);
 					}
 					case TypeCode.Float64: {
 						var temp = new byte[8];
@@ -157,7 +157,7 @@ namespace SharpXpra {
 							blist.Add((byte) t);
 							break;
 						}
-						case long x: {
+						case long x when x > int.MaxValue || x < int.MinValue: {
 							blist.Add((byte) TypeCode.Int8);
 							var t = (ulong) x;
 							blist.Add((byte) (t >> 56));
@@ -170,6 +170,9 @@ namespace SharpXpra {
 							blist.Add((byte) t);
 							break;
 						}
+						case long x:
+							SubEncode((int) x);
+							break;
 						case float x: {
 							blist.Add((byte) TypeCode.Float32);
 							var temp = BitConverter.GetBytes(x);

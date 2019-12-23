@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text;
 
 namespace SharpXpra {
 	[AttributeUsage(AttributeTargets.Method)]
@@ -27,10 +28,9 @@ namespace SharpXpra {
 					Expression.Call(client, method,
 						method.GetParameters()
 							.Select((x, i) =>
-								Expression.Convert(
-									Expression.Property(param, param.Type.GetProperty("Item"),
-										Expression.Constant(i + 1)),
-									x.ParameterType))));
+								Expression.Call(
+									typeof(Client).GetMethod("ConvertParam").MakeGenericMethod(x.ParameterType), param,
+									Expression.Constant(i)))));
 				Handlers[handler.Name] = (Action<Client, List<object>>) Expression.Lambda(body, client, param).Compile();
 			}
 		}
@@ -38,6 +38,19 @@ namespace SharpXpra {
 		public static void AssertEqual(int got, int expected) {
 			if(got != expected)
 				throw new Exception($"Assertion failed; got {got} expected {expected}");
+		}
+
+		public static OutT ConvertParam<OutT>(List<object> packet, int i) {
+			var obj = packet[i + 1];
+			if(obj is OutT match) return match;
+			var itype = obj.GetType();
+			var otype = typeof(OutT);
+			return obj switch {
+				string str when otype == typeof(byte[]) => (OutT) (object) Encoding.UTF8.GetBytes(str),
+				int iv when otype == typeof(long) => (OutT) (object) (long) iv,
+				_ => throw new NotSupportedException(
+					$"Handler for {packet[0].ToPrettyString()} wanted {otype.ToPrettyString()} but got {itype.ToPrettyString()} in parameter {i}; no conversion available")
+			};
 		}
 	}
 }
