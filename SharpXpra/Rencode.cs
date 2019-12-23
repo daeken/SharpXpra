@@ -43,9 +43,9 @@ namespace SharpXpra {
 						               ((ulong) data[pos++] << 40) | ((ulong) data[pos++] << 32) |
 						               ((ulong) data[pos++] << 24) | ((ulong) data[pos++] << 16) |
 						               ((ulong) data[pos++] << 8) | data[pos++]);
-					case TypeCode v when (byte) v < 44:
+					case { } v when (byte) v < 44:
 						return (int) v;
-					case TypeCode v when (byte) v >= 70 && (byte) v < 70 + 32:
+					case { } v when (byte) v >= 70 && (byte) v < 70 + 32:
 						return -((int) v - 69);
 					case TypeCode.Int:
 						throw new NotImplementedException();
@@ -61,11 +61,11 @@ namespace SharpXpra {
 							temp[7 - i] = data[pos++];
 						return BitConverter.ToDouble(temp, 0);
 					}
-					case TypeCode v when (byte) v >= 128 && (byte) v < 128 + 64:
+					case { } v when (byte) v >= 128 && (byte) v < 128 + 64:
 						var slen = (int) v - 128;
 						pos += slen;
 						return Encoding.UTF8.GetString(data, pos - slen, slen);
-					case TypeCode v when (byte) v >= 49 && (byte) v <= 57: {
+					case { } v when (byte) v >= 49 && (byte) v <= 57: {
 						var lstr = ((char) v).ToString();
 						while(data[pos] != ':')
 							lstr += (char) data[pos++];
@@ -79,7 +79,7 @@ namespace SharpXpra {
 						return true;
 					case TypeCode.False:
 						return false;
-					case TypeCode v when (byte) v >= 192: {
+					case { } v when (byte) v >= 192: {
 						var size = (int) v - 192;
 						var list = new List<object>();
 						for(var i = 0; i < size; ++i)
@@ -93,7 +93,7 @@ namespace SharpXpra {
 						pos++;
 						return list;
 					}
-					case TypeCode v when (byte) v >= 102 && (byte) v < 102 + 25: {
+					case { } v when (byte) v >= 102 && (byte) v < 102 + 25: {
 						var size = (int) v - 102;
 						var dict = new Dictionary<object, object>();
 						for(var i = 0; i < size; ++i) {
