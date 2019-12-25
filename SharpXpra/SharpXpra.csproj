@@ -39,9 +39,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CompositorInterface.cs" />
     <Compile Include="Client.cs" />
     <Compile Include="ClientReflection.cs" />
     <Compile Include="Connection.cs" />
+    <Compile Include="Extensions.cs" />
     <Compile Include="PrettyPrinter.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Rencode.cs" />

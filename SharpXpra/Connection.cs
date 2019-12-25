@@ -28,8 +28,8 @@ namespace SharpXpra {
 			Brotli = 0x40
 		}
 		
-		public Connection() {
-			var tcpClient = new TcpClient("10.0.0.200", 10000);
+		public Connection(string hostname, int port) {
+			var tcpClient = new TcpClient(hostname, port);
 			if(tcpClient.Connected)
 				Console.WriteLine("Connected to host");
 			Stream = tcpClient.GetStream();

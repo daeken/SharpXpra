@@ -13,25 +13,28 @@ namespace SharpXpra {
 		public HandlerAttribute(string name) => Name = name;
 	}
 	
-	public partial class Client {
+	public partial class Client<CompositorT, WindowT> {
 		void SetupHandlers() {
 			foreach(var method in GetType()
 				.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)) {
 				var handler = method.GetCustomAttribute<HandlerAttribute>();
 				if(handler == null) continue;
-				var client = Expression.Parameter(typeof(Client));
+				var client = Expression.Parameter(typeof(Client<CompositorT, WindowT>));
 				var param = Expression.Parameter(typeof(List<object>));
 				var body = Expression.Block(typeof(void),
-					Expression.Call(typeof(Client).GetMethod("AssertEqual"),
+					Expression.Call(typeof(Client<CompositorT, WindowT>).GetMethod("AssertEqual"),
 						Expression.MakeMemberAccess(param, typeof(List<object>).GetMember("Count")[0]),
 						Expression.Constant(method.GetParameters().Length + 1)),
 					Expression.Call(client, method,
 						method.GetParameters()
 							.Select((x, i) =>
 								Expression.Call(
-									typeof(Client).GetMethod("ConvertParam").MakeGenericMethod(x.ParameterType), param,
+									typeof(Client<CompositorT, WindowT>).GetMethod("ConvertParam")
+										.MakeGenericMethod(x.ParameterType), param,
 									Expression.Constant(i)))));
-				Handlers[handler.Name] = (Action<Client, List<object>>) Expression.Lambda(body, client, param).Compile();
+				Handlers[handler.Name] =
+					(Action<Client<CompositorT, WindowT>, List<object>>) Expression.Lambda(body, client, param)
+						.Compile();
 			}
 		}
 

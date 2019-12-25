@@ -4,14 +4,18 @@ using System.IO;
 using System.Linq;
 
 namespace SharpXpra {
-	public partial class Client {
-		readonly Dictionary<string, Action<Client, List<object>>> Handlers =
-			new Dictionary<string, Action<Client, List<object>>>();
+	public partial class Client<CompositorT, WindowT>
+		where CompositorT : BaseCompositor<CompositorT, WindowT>
+		where WindowT : BaseWindow<CompositorT, WindowT>, new() {
+		readonly Dictionary<string, Action<Client<CompositorT, WindowT>, List<object>>> Handlers =
+			new Dictionary<string, Action<Client<CompositorT, WindowT>, List<object>>>();
 		readonly Connection Connection;
+		readonly CompositorT Compositor;
 
-		public Client() {
+		public Client(string hostname, int port, CompositorT compositor) {
+			Compositor = compositor;
 			SetupHandlers();
-			Connection = new Connection();
+			Connection = new Connection(hostname, port);
 			SendHello();
 		}
 
@@ -33,7 +37,9 @@ namespace SharpXpra {
 		void HandleNewWindow(int wid, int x, int y, int w, int h, Dictionary<object, object> metadata,
 			Dictionary<object, object> clientProperties) {
 			Console.WriteLine($"New window! {wid} @ {x}x{y} ({w}x{h}) {metadata.ToPrettyString()}");
-			Send("map-window", wid, x + 100000, y + 100000, w, h);
+			var window = Compositor.CreateWindow(wid);
+			window.BufferSize = (w, h);
+			Send("map-window", wid, window.Position, w, h);
 			Send("buffer-refresh", wid, null, 100);
 		}
 

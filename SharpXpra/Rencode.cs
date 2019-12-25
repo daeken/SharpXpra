@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace SharpXpra {
@@ -120,6 +121,10 @@ namespace SharpXpra {
 		public static byte[] Encode(object obj) {
 			var blist = new List<byte>();
 			void SubEncode(object v) {
+				/*if(v == null)
+					"SubEncode(null)".Print();
+				else
+					$"SubEncode({v.ToPrettyString()} -- {v.GetType().ToPrettyString()})".Print();*/
 				unchecked {
 					switch(v) {
 						case true:
@@ -187,8 +192,8 @@ namespace SharpXpra {
 								blist.Add(temp[i]);
 							break;
 						}
-						case List<object> x when x.Count < 64: {
-							blist.Add((byte) (192 + x.Count));
+						case List<object> x when x.NestedCount() < 64: {
+							blist.Add((byte) (192 + x.NestedCount()));
 							foreach(var elem in x)
 								SubEncode(elem);
 							break;
@@ -226,6 +231,10 @@ namespace SharpXpra {
 							blist.AddRange(Encoding.UTF8.GetBytes(x.Length.ToString()));
 							blist.Add((byte) ':');
 							blist.AddRange(Encoding.UTF8.GetBytes(x));
+							break;
+						case ITuple x:
+							for(var i = 0; i < x.Length; ++i)
+								SubEncode(x[i]);
 							break;
 						default:
 							throw new NotImplementedException($"Rencoding {v} ({v.GetType().FullName})");

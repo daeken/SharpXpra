@@ -13,9 +13,9 @@ namespace SharpXpra {
 		string ToPrettyString();
 	}
 	
-	public static class Extensions {
+	public static class PpExtensions {
 		static readonly IReadOnlyDictionary<Type, MethodInfo> Printers;
-		static Extensions() {
+		static PpExtensions() {
 			var printers = new Dictionary<Type, MethodInfo>();
 			foreach(var asm in AppDomain.CurrentDomain.GetAssemblies()) {
 				foreach(var type in asm.GetTypes()) {
