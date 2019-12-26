@@ -91,6 +91,11 @@ namespace SharpXpra {
 			}).Start();
 		}
 
+		public void Disconnect() {
+			Canceller.Cancel();
+			Stream.Close();
+		}
+
 		void ReadAll(byte[] buffer) {
 			var off = 0;
 			var size = buffer.Length;
