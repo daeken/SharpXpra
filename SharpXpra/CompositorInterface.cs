@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace SharpXpra {
@@ -10,6 +11,7 @@ namespace SharpXpra {
 		where CompositorT : BaseCompositor<CompositorT, WindowT>
 		where WindowT : BaseWindow<CompositorT, WindowT> {
 		public readonly List<WindowT> Windows = new List<WindowT>();
+		public Client<CompositorT, WindowT> Client;
 
 		public WindowT CreateWindow(int wid) {
 			var window = ConstructWindow(wid);
@@ -39,7 +41,7 @@ namespace SharpXpra {
 			}
 		}
 
-		internal (int, int) Position => (Id % 100 * 10000, Id / 100 * 10000);
+		internal (int X, int Y) Position = (-1, -1);
 		(int W, int H) _BufferSize;
 
 		public (int W, int H) BufferSize {
@@ -50,6 +52,8 @@ namespace SharpXpra {
 				UpdateBufferSize();
 			}
 		}
+
+		public void MouseMove(int x, int y) => Compositor.Client.SendMouseMove(Id, x, y);
 
 		protected BaseWindow(CompositorT compositor, int id) {
 			Compositor = compositor;

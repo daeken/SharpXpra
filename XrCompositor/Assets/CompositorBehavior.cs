@@ -4,18 +4,24 @@ using System.Collections.Generic;
 using UnityEngine;
 using SharpXpra;
 using TMPro;
+using UnityEditor;
 using Object = UnityEngine.Object;
 
 public class UnityCompositor : BaseCompositor<UnityCompositor, UnityWindow> {
 	public readonly CompositorBehavior Behavior;
+	public UnityWindow Focused;
 
 	public UnityCompositor(CompositorBehavior behavior) => Behavior = behavior;
 	
 	protected override UnityWindow ConstructWindow(int wid) => new UnityWindow(this, wid);
+
+	public override void Log(string message) => Debug.Log(message);
+	public override void Error(string message) => Debug.LogError(message);
 }
 
 public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
 	readonly GameObject Window, Topbar, Surface, TitleText;
+	public readonly Collider TopbarCollider, SurfaceCollider;
 	readonly RectTransform TitleTransform;
 	readonly TextMeshPro TextMesh;
 	readonly Renderer SurfaceRenderer;
@@ -23,11 +29,13 @@ public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
 	bool NewBufferSize;
 	Texture2D SurfaceTexture;
 	byte[] Pixels;
-	
+
 	public UnityWindow(UnityCompositor compositor, int id) : base(compositor, id) {
 		Window = Object.Instantiate(Compositor.Behavior.WindowPrefab);
 		Topbar = Window.transform.Find("Topbar").gameObject;
+		TopbarCollider = Topbar.GetComponent<Collider>();
 		Surface = Window.transform.Find("Surface").gameObject;
+		SurfaceCollider = Surface.GetComponent<Collider>();
 		TitleText = Window.transform.Find("TitleText").gameObject;
 		TextMesh = TitleText.GetComponent<TextMeshPro>();
 		TitleTransform = TitleText.GetComponent<RectTransform>();
@@ -74,12 +82,19 @@ public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
 			Initialized = true;
 		}
 	}
+
+	public (int, int) UnprojectPoint(Vector3 point) {
+		var localPoint = Surface.transform.InverseTransformPoint(point);
+		return ((int) Mathf.Round((localPoint.x + 0.5f) * BufferSize.W),
+			(int) Mathf.Round((1 - (localPoint.y + 0.5f)) * BufferSize.H));
+	}
 }
 
 public class CompositorBehavior : MonoBehaviour {
 	public GameObject WindowPrefab;
 	Client<UnityCompositor, UnityWindow> Client;
 	UnityCompositor Compositor;
+	Vector3 MousePosition;
 
 	void Start() {
 		Compositor = new UnityCompositor(this);
@@ -87,6 +102,19 @@ public class CompositorBehavior : MonoBehaviour {
 	}
 
 	void Update() {
+		if(MousePosition != Input.mousePosition) {
+			MousePosition = Input.mousePosition;
+			var ray = Camera.main.ScreenPointToRay(MousePosition);
+			if(Physics.Raycast(ray, out var hit)) {
+				foreach(var window in Compositor.Windows)
+					if(hit.collider == window.SurfaceCollider) {
+						var (x, y) = window.UnprojectPoint(hit.point);
+						window.MouseMove(x, y);
+						break;
+					}
+			}
+		}
+
 		Client.Update();
 	}
 

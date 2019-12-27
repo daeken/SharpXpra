@@ -14,6 +14,7 @@ namespace SharpXpra {
 
 		public Client(string hostname, int port, CompositorT compositor) {
 			Compositor = compositor;
+			Compositor.Client = this;
 			SetupHandlers();
 			Connection = new Connection(hostname, port);
 			SendHello();
@@ -31,8 +32,43 @@ namespace SharpXpra {
 		public void Disconnect() => Connection.Disconnect();
 
 		[Handler("hello")]
-		void HandleHello(Dictionary<object, dynamic> capabilities) {
-			capabilities.Print();
+		void HandleHello(Dictionary<object, object> capabilities) {
+			//foreach(var kv in capabilities)
+			//	Compositor.Log($"{kv.Key.ToPrettyString()} -- {kv.Value.ToPrettyString()}");
+		}
+
+		// TODO: We really should just be keeping a free list around and only rearranging when a new window won't fit
+		internal void RearrangeWindows() {
+			if(Compositor.Windows.Count(window => window.Position.X == -1 && window.Position.Y == -1) == 0)
+				return;
+			// TODO: Remove hard-coding here; get max_desktop_size from hello
+			var free = new List<(int Area, int X, int Y, int W, int H)> { (8192 * 4096, 0, 0, 8192, 4096) };
+			foreach(var window in Compositor.Windows.OrderByDescending(window => window.BufferSize.W * window.BufferSize.H)) {
+				var (bw, bh) = window.BufferSize;
+				var area = bw * bh;
+				var found = false;
+				foreach(var bin in free) {
+					if(bin.Area < area || bin.W < bw || bin.H < bh) continue;
+					found = true;
+					free.Remove(bin);
+					var nw = bin.W - bw;
+					var nh = bin.H - bh;
+					if(bin.W > bw && bin.H > bh) {
+						free.Add((bw * nh, bin.X, bin.Y + bh, bw, nh));
+						free.Add((nw * bin.H, bin.X + bw, bin.Y, nw, bin.H));
+					} else if(bin.W > bw)
+						free.Add((nw * bin.H, bin.X + bw, bin.Y, nw, bh));
+					else if(bin.H > bh)
+						free.Add((nh * bin.W, bin.X, bin.Y + bh, bw, nh));
+
+					if(window.Position.X == bin.X && window.Position.Y == bin.Y) break;
+					window.Position = (bin.X, bin.Y);
+					Send("map-window", window.Id, window.Position, window.BufferSize);
+					break;
+				}
+				if(!found)
+					throw new Exception("Could not find open bin for window!");
+			}
 		}
 
 		[Handler("new-window")]
@@ -43,8 +79,9 @@ namespace SharpXpra {
 			window.BufferSize = (w, h);
 			if(metadata.ContainsKey("title"))
 				window.Title = metadata["title"] as string;
-			Send("map-window", wid, window.Position, w, h);
-			Send("buffer-refresh", wid, null, 100);
+			RearrangeWindows();
+			Send("focus", wid);
+			//Send("buffer-refresh", wid, null, 100);
 		}
 
 		[Handler("startup-complete")]
@@ -69,6 +106,12 @@ namespace SharpXpra {
 			};
 			Compositor.Windows.First(window => window.Id == wid).Damage(x, y, w, h, encoding, data);
 			Send("damage-sequence", packet_sequence, wid, w, h, 0, "");
+		}
+
+		public void SendMouseMove(int wid, int x, int y) {
+			var window = Compositor.Windows.First(window => window.Id == wid);
+			var (px, py) = window.Position;
+			Send("pointer-position", wid, new List<object> { px + x, py + y }, new List<object>());
 		}
 
 		void Send(params object[] args) => Connection.Send(args.ToList());
