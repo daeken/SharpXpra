@@ -52,6 +52,7 @@ namespace SharpXpra {
 			if(obj is Type) type = typeof(Type);
 			if(!Printers.ContainsKey(type)) {
 				if(!type.GetInterfaces().Contains(typeof(IEnumerable))) return GenericPretty(obj);
+				if(type.GetInterfaces().Contains(typeof(IDictionary))) return PrettyDict(obj);
 				var temp = Enumeratorable(((IEnumerable) obj).GetEnumerator()).ToList();
 				var prefix = $"{ToPrettyString(type.IsArray ? type.GetElementType() : type)}[{temp.Count}]";
 				switch(temp.Count) {
@@ -79,6 +80,21 @@ namespace SharpXpra {
 				case 1: return prefix + $" {fields[0].Name} = {fields[0].GetValue(obj).ToPrettyString()} }}";
 				default:
 					return prefix + "\n" + string.Join(", \n", fields.Select(field => Indentify(field.Name + " = " + field.GetValue(obj).ToPrettyString()))) + "\n}";
+			}
+		}
+
+		static string PrettyDict(object obj) {
+			var dict = (IDictionary) obj;
+			var prefix = $"{ToPrettyString(obj.GetType())}[{dict.Count}]";
+			switch(dict.Count) {
+				case 0: return prefix;
+				case 1:
+					return prefix + $" {{ [{ToPrettyString(dict.Keys.Cast<object>().ToList()[0])}] =" +
+					       $" {ToPrettyString(dict.Values.Cast<object>().ToList()[0])} }}";
+				default:
+					var kv = dict.Keys.Cast<object>().Zip(dict.Values.Cast<object>(), (k, v) => (k, v)).ToList();
+					return prefix + " {\n" + string.Join(", \n",
+						       kv.Select(x => Indentify($"[{ToPrettyString(x.k)}] = {ToPrettyString(x.v)}"))) + "\n}";
 			}
 		}
 		

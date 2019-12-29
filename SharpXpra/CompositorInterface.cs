@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace SharpXpra {
 	public enum PixelEncoding {
@@ -11,6 +12,8 @@ namespace SharpXpra {
 		where CompositorT : BaseCompositor<CompositorT, WindowT>
 		where WindowT : BaseWindow<CompositorT, WindowT> {
 		public readonly List<WindowT> Windows = new List<WindowT>();
+		public List<WindowT> TrueWindows => Windows.Where(x => !x.IsPopup).ToList();
+		public List<WindowT> PopupWindows => Windows.Where(x => x.IsPopup).ToList();
 		public Client<CompositorT, WindowT> Client;
 
 		public WindowT CreateWindow(int wid) {
@@ -19,7 +22,14 @@ namespace SharpXpra {
 			return window;
 		}
 
+		public WindowT CreatePopup(int wid, WindowT parent, int x, int y) {
+			var window = ConstructPopup(wid, parent, x, y);
+			Windows.Add(window);
+			return window;
+		}
+
 		protected abstract WindowT ConstructWindow(int wid);
+		protected abstract WindowT ConstructPopup(int wid, WindowT parent, int x, int y);
 		
 		public virtual void Log(string message) {}
 		public virtual void Error(string message) {}
@@ -30,6 +40,7 @@ namespace SharpXpra {
 		where WindowT : BaseWindow<CompositorT, WindowT> {
 		public readonly CompositorT Compositor;
 		public readonly int Id;
+		public readonly bool IsPopup;
 
 		string _Title;
 		public string Title {
@@ -41,7 +52,7 @@ namespace SharpXpra {
 			}
 		}
 
-		internal (int X, int Y) Position = (-1, -1);
+		public (int X, int Y) Position = (-1, -1);
 		(int W, int H) _BufferSize;
 
 		public (int W, int H) BufferSize {
@@ -53,15 +64,19 @@ namespace SharpXpra {
 			}
 		}
 
-		public void MouseMove(int x, int y) => Compositor.Client.SendMouseMove(Id, x, y);
+		public void MouseMove(int x, int y, bool[] buttons) => Compositor.Client.SendMouseMove(Id, x, y, buttons);
+		public void MouseButton(int x, int y, int button, bool pressed) =>
+			Compositor.Client.SendMouseButton(Id, x, y, button, pressed);
 
-		protected BaseWindow(CompositorT compositor, int id) {
+		protected BaseWindow(CompositorT compositor, int id, bool isPopup) {
 			Compositor = compositor;
 			Id = id;
+			IsPopup = isPopup;
 		}
 		
 		protected virtual void UpdateTitle() {}
 		protected virtual void UpdateBufferSize() {}
+		public virtual void Closing() {}
 		
 		public abstract void Damage(int x, int y, int w, int h, PixelEncoding encoding, byte[] data);
 	}

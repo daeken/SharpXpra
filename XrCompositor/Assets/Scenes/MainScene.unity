@@ -151,6 +151,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   WindowPrefab: {fileID: 7736077537812207912, guid: a32f9df246b094ec1bb8e36f948247ed,
     type: 3}
+  PopupPrefab: {fileID: 2037493040787215432, guid: 0cb23e3020f3540568554ea0c2f9d202,
+    type: 3}
 --- !u!4 &627540408
 Transform:
   m_ObjectHideFlags: 0
@@ -215,7 +217,7 @@ Camera:
     width: 1
     height: 1
   near clip plane: 0.3
-  far clip plane: 1000
+  far clip plane: 100
   field of view: 60
   orthographic: 0
   orthographic size: 5
@@ -242,7 +244,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

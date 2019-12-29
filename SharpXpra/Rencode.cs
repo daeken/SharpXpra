@@ -26,8 +26,8 @@ namespace SharpXpra {
 			var pos = 0;
 			return Decode(data, ref pos);
 		}
-		
-		public static object Decode(byte[] data, ref int pos) {
+
+		static object SubDecode(byte[] data, ref int pos, int depth, int lpos = -1) {
 			if(pos >= data.Length)
 				throw new Exception();
 			unchecked {
@@ -62,17 +62,26 @@ namespace SharpXpra {
 							temp[7 - i] = data[pos++];
 						return BitConverter.ToDouble(temp, 0);
 					}
-					case { } v when (byte) v >= 128 && (byte) v < 128 + 64:
+					case { } v when (byte) v >= 128 && (byte) v < 128 + 64: {
 						var slen = (int) v - 128;
 						pos += slen;
-						return Encoding.UTF8.GetString(data, pos - slen, slen);
+						if(depth != 1 || lpos == 0)
+							return Encoding.UTF8.GetString(data, pos - slen, slen);
+						var ret = new byte[slen];
+						Array.Copy(data, pos - slen, ret, 0, slen);
+						return ret;
+					}
 					case { } v when (byte) v >= 49 && (byte) v <= 57: {
 						var lstr = ((char) v).ToString();
 						while(data[pos] != ':')
 							lstr += (char) data[pos++];
 						var len = int.Parse(lstr);
 						pos += len + 1;
-						return Encoding.UTF8.GetString(data, pos - len, len);
+						if(depth != 1 || lpos == 0)
+							return Encoding.UTF8.GetString(data, pos - len, len);
+						var ret = new byte[len];
+						Array.Copy(data, pos - len, ret, 0, len);
+						return ret;
 					}
 					case TypeCode.None:
 						return null;
@@ -84,13 +93,14 @@ namespace SharpXpra {
 						var size = (int) v - 192;
 						var list = new List<object>();
 						for(var i = 0; i < size; ++i)
-							list.Add(Decode(data, ref pos));
+							list.Add(SubDecode(data, ref pos, depth + 1, i));
 						return list;
 					}
 					case TypeCode.List: {
 						var list = new List<object>();
+						var i = 0;
 						while((TypeCode) data[pos] != TypeCode.Term)
-							list.Add(Decode(data, ref pos));
+							list.Add(SubDecode(data, ref pos, depth + 1, i++));
 						pos++;
 						return list;
 					}
@@ -98,16 +108,16 @@ namespace SharpXpra {
 						var size = (int) v - 102;
 						var dict = new Dictionary<object, object>();
 						for(var i = 0; i < size; ++i) {
-							var key = Decode(data, ref pos);
-							dict[key] = Decode(data, ref pos);
+							var key = SubDecode(data, ref pos, depth + 1);
+							dict[key] = SubDecode(data, ref pos, depth + 1);
 						}
 						return dict;
 					}
 					case TypeCode.Dict: {
 						var dict = new Dictionary<object, object>();
 						while((TypeCode) data[pos] != TypeCode.Term) {
-							var key = Decode(data, ref pos);
-							dict[key] = Decode(data, ref pos);
+							var key = SubDecode(data, ref pos, depth + 1);
+							dict[key] = SubDecode(data, ref pos, depth + 1);
 						}
 						pos++;
 						return dict;
@@ -117,6 +127,8 @@ namespace SharpXpra {
 				}
 			}
 		}
+
+		public static object Decode(byte[] data, ref int pos) => SubDecode(data, ref pos, 0, 0);
 
 		public static byte[] Encode(object obj) {
 			var blist = new List<byte>();

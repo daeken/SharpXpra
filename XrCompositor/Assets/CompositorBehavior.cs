@@ -1,61 +1,76 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using SharpXpra;
 using TMPro;
-using UnityEditor;
 using Object = UnityEngine.Object;
 
-public class UnityCompositor : BaseCompositor<UnityCompositor, UnityWindow> {
+public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> {
 	public readonly CompositorBehavior Behavior;
 	public UnityWindow Focused;
 
 	public UnityCompositor(CompositorBehavior behavior) => Behavior = behavior;
 	
-	protected override UnityWindow ConstructWindow(int wid) => new UnityWindow(this, wid);
+	protected override UnityBaseWindow ConstructWindow(int wid) => new UnityWindow(this, wid);
+	protected override UnityBaseWindow ConstructPopup(int wid, UnityBaseWindow parent, int x, int y) =>
+		new UnityPopup(this, wid, parent, x, y);
+
+	public void SpatiallyArrangeWindows() {
+		var factor = 1.2f / 100;
+		var circumference = TrueWindows.Select(x => x.BufferSize.W * factor).Sum();
+		var radius = circumference / Mathf.PI / 2 * factor * 100f;
+		var i = 0f;
+		var step = Mathf.PI * 2 / circumference;
+		foreach(var window in TrueWindows) {
+			window.Window.transform.position = new Vector3(-radius * Mathf.Sin(i), 0, radius * Mathf.Cos(i));
+			window.Window.transform.rotation = Quaternion.AngleAxis(Mathf.Rad2Deg * i, Vector3.down);
+			i += window.BufferSize.W * factor * step;
+		}
+	}
 
 	public override void Log(string message) => Debug.Log(message);
 	public override void Error(string message) => Debug.LogError(message);
 }
 
-public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
-	readonly GameObject Window, Topbar, Surface, TitleText;
-	public readonly Collider TopbarCollider, SurfaceCollider;
-	readonly RectTransform TitleTransform;
-	readonly TextMeshPro TextMesh;
-	readonly Renderer SurfaceRenderer;
-	bool Initialized;
-	bool NewBufferSize;
-	Texture2D SurfaceTexture;
-	byte[] Pixels;
+public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWindow> {
+	public readonly GameObject Window, SurfaceCorner, Surface;
+	public readonly Collider SurfaceCollider;
+	public readonly Renderer SurfaceRenderer;
+	public bool Initialized;
+	public bool NewBufferSize;
+	public Texture2D SurfaceTexture;
+	public byte[] Pixels;
 
-	public UnityWindow(UnityCompositor compositor, int id) : base(compositor, id) {
-		Window = Object.Instantiate(Compositor.Behavior.WindowPrefab);
-		Topbar = Window.transform.Find("Topbar").gameObject;
-		TopbarCollider = Topbar.GetComponent<Collider>();
-		Surface = Window.transform.Find("Surface").gameObject;
+	public UnityBaseWindow(UnityCompositor compositor, int id, bool isPopup) : base(compositor, id, isPopup) {
+		Window = MakeWindow();
+		SurfaceCorner = Window.transform.Find("SurfaceCorner").gameObject;
+		Surface = SurfaceCorner.transform.Find("Surface").gameObject;
 		SurfaceCollider = Surface.GetComponent<Collider>();
-		TitleText = Window.transform.Find("TitleText").gameObject;
-		TextMesh = TitleText.GetComponent<TextMeshPro>();
-		TitleTransform = TitleText.GetComponent<RectTransform>();
 		SurfaceRenderer = Surface.GetComponent<Renderer>();
 		Window.SetActive(false);
 	}
 
-	protected override void UpdateTitle() => TextMesh.SetText(Title);
+	protected abstract GameObject MakeWindow();
+	
 	protected override void UpdateBufferSize() => NewBufferSize = true;
+	protected virtual void UpdateWindowSize(Vector3 ss) { }
+	public override void Closing() {
+		if(Compositor.Behavior.CurrentHoverWindow == this)
+			Compositor.Behavior.CurrentHoverWindow = null;
+		Object.Destroy(Window);
+		Compositor.SpatiallyArrangeWindows();
+	}
 
 	public override void Damage(int x, int y, int w, int h, PixelEncoding encoding, byte[] data) {
 		if(!NewBufferSize && Pixels == null) return;
 		
 		if(NewBufferSize) {
+			Compositor.SpatiallyArrangeWindows();
 			var ss = new Vector3(BufferSize.W / 100f, BufferSize.H / 100f, 1);
+			SurfaceCorner.transform.localPosition = new Vector3(-ss.x / 2, ss.y / 2, 0);
+			Surface.transform.localPosition = new Vector3(ss.x / 2, -ss.y / 2, 0);
 			Surface.transform.localScale = ss;
-			Topbar.transform.localScale = new Vector3(ss.x, 0.25f, 0.1f);
-			Topbar.transform.localPosition = new Vector3(0, ss.y / 2 + 0.25f / 2, -0.05f);
-			TitleTransform.sizeDelta = new Vector2(ss.x, 0.25f);
-			TitleTransform.position = new Vector3(0, ss.y / 2 + 0.25f / 2, -0.101f);
+			UpdateWindowSize(ss);
 			NewBufferSize = false;
 			SurfaceTexture = new Texture2D(w, h, TextureFormat.RGB24, false);
 			SurfaceRenderer.material.SetTexture("_MainTex", SurfaceTexture);
@@ -82,6 +97,8 @@ public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
 			Initialized = true;
 		}
 	}
+	
+	public virtual void EnsureProperPosition() { }
 
 	public (int, int) UnprojectPoint(Vector3 point) {
 		var localPoint = Surface.transform.InverseTransformPoint(point);
@@ -90,30 +107,102 @@ public class UnityWindow : BaseWindow<UnityCompositor, UnityWindow> {
 	}
 }
 
+public class UnityWindow : UnityBaseWindow {
+	readonly GameObject Topbar, TitleText;
+	public readonly Collider TopbarCollider;
+	readonly RectTransform TitleTransform;
+	readonly TextMeshPro TextMesh;
+	
+	public UnityWindow(UnityCompositor compositor, int id) : base(compositor, id, false) {
+		Topbar = Window.transform.Find("Topbar").gameObject;
+		TopbarCollider = Topbar.GetComponent<Collider>();
+		TitleText = Window.transform.Find("TitleText").gameObject;
+		TextMesh = TitleText.GetComponent<TextMeshPro>();
+		TitleTransform = TitleText.GetComponent<RectTransform>();
+	}
+
+	protected override void UpdateTitle() => TextMesh.SetText(Title);
+
+	protected override GameObject MakeWindow() => Object.Instantiate(Compositor.Behavior.WindowPrefab);
+
+	protected override void UpdateWindowSize(Vector3 ss) {
+		Topbar.transform.localScale = new Vector3(ss.x, 0.25f, 0.1f);
+		Topbar.transform.localPosition = new Vector3(0, ss.y / 2 + 0.25f / 2, -0.05f);
+		TitleTransform.sizeDelta = new Vector2(ss.x, 0.25f);
+		TitleTransform.localPosition = new Vector3(0, ss.y / 2 + 0.25f / 2, -0.101f);
+	}
+}
+
+public class UnityPopup : UnityBaseWindow {
+	readonly UnityBaseWindow Parent;
+	readonly int RelativeX, RelativeY;
+
+	public UnityPopup(UnityCompositor compositor, int id, UnityBaseWindow parent, int x, int y) : base(compositor, id,
+		true) {
+		Parent = parent;
+		RelativeX = x;
+		RelativeY = y;
+		Window.transform.parent = Parent.SurfaceCorner.transform;
+		Window.transform.localRotation = Quaternion.identity;
+	}
+
+	public override void EnsureProperPosition() =>
+		Position = (Parent.Position.X + RelativeX, Parent.Position.Y + RelativeY);
+
+	protected override void UpdateWindowSize(Vector3 ss) => 
+		Window.transform.localPosition = new Vector3(ss.x / 2 + RelativeX / 100f, -ss.y / 2 - RelativeY / 100f, -0.1f);
+
+	protected override GameObject MakeWindow() => Object.Instantiate(Compositor.Behavior.PopupPrefab);
+}
+
 public class CompositorBehavior : MonoBehaviour {
-	public GameObject WindowPrefab;
-	Client<UnityCompositor, UnityWindow> Client;
+	public GameObject WindowPrefab, PopupPrefab;
+	Client<UnityCompositor, UnityBaseWindow> Client;
 	UnityCompositor Compositor;
 	Vector3 MousePosition;
-
+	public UnityBaseWindow CurrentHoverWindow;
+	(int X, int Y) WindowMousePosition;
+	bool[] ButtonState = new bool[7];
+	
 	void Start() {
 		Compositor = new UnityCompositor(this);
-		Client = new Client<UnityCompositor, UnityWindow>("10.0.0.200", 10000, Compositor);
+		Client = new Client<UnityCompositor, UnityBaseWindow>("10.0.0.200", 10000, Compositor);
 	}
 
 	void Update() {
+		var changed = new bool[ButtonState.Length];
+		for(var i = 1; i < ButtonState.Length; ++i) {
+			var state = Input.GetMouseButton(i - 1);
+			changed[i] = ButtonState[i] != state;
+			ButtonState[i] = state;
+		}
 		if(MousePosition != Input.mousePosition) {
 			MousePosition = Input.mousePosition;
+			CurrentHoverWindow = null;
 			var ray = Camera.main.ScreenPointToRay(MousePosition);
 			if(Physics.Raycast(ray, out var hit)) {
 				foreach(var window in Compositor.Windows)
 					if(hit.collider == window.SurfaceCollider) {
+						CurrentHoverWindow = window;
 						var (x, y) = window.UnprojectPoint(hit.point);
-						window.MouseMove(x, y);
+						WindowMousePosition = (x, y);
+						window.EnsureProperPosition();
+						window.MouseMove(x, y, ButtonState);
 						break;
 					}
 			}
 		}
+		if(CurrentHoverWindow != null)
+			for(var i = 0; i < ButtonState.Length; ++i)
+				if(changed[i]) {
+					Debug.Log($"Button state changed: {i} == {ButtonState[i]}");
+					CurrentHoverWindow.MouseButton(WindowMousePosition.X, WindowMousePosition.Y, i, ButtonState[i]);
+				}
+		
+		if(Input.GetKey(KeyCode.LeftArrow))
+			Camera.main.transform.Rotate(Vector3.up, -2);
+		if(Input.GetKey(KeyCode.RightArrow))
+			Camera.main.transform.Rotate(Vector3.up, 2);
 
 		Client.Update();
 	}

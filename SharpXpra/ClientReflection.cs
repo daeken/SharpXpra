@@ -49,7 +49,8 @@ namespace SharpXpra {
 			var itype = obj.GetType();
 			var otype = typeof(OutT);
 			return obj switch {
-				string str when otype == typeof(byte[]) => (OutT) (object) Encoding.UTF8.GetBytes(str),
+				//string str when otype == typeof(byte[]) => (OutT) (object) Encoding.UTF8.GetBytes(str),
+				byte[] bytes when otype == typeof(string) => (OutT) (object) Encoding.UTF8.GetString(bytes), 
 				int iv when otype == typeof(long) => (OutT) (object) (long) iv,
 				_ => throw new NotSupportedException(
 					$"Handler for {packet[0].ToPrettyString()} wanted {otype.ToPrettyString()} but got {itype.ToPrettyString()} in parameter {i}; no conversion available")
