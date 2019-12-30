@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Net.Sockets;
 using System.Threading;
 
@@ -30,8 +31,6 @@ namespace SharpXpra {
 		
 		public Connection(string hostname, int port) {
 			var tcpClient = new TcpClient(hostname, port);
-			if(tcpClient.Connected)
-				Console.WriteLine("Connected to host");
 			Stream = tcpClient.GetStream();
 			new Thread(() => {
 				try {
@@ -50,8 +49,18 @@ namespace SharpXpra {
 							throw new Exception();
 						var buf = new byte[dataSize];
 						ReadAll(buf);
-						if(compressionLevel != 0)
-							throw new NotSupportedException();
+						if(compressionLevel != 0) {
+							if(((CompressionFlags) compressionLevel).HasFlag(CompressionFlags.Lz4)) {
+								throw new NotImplementedException();
+							} else {
+								using var ts = new MemoryStream();
+								using var ms = new MemoryStream(buf, 2, (int) dataSize - 6);
+								using var ds = new DeflateStream(ms, CompressionMode.Decompress);
+								ds.CopyTo(ts);
+								buf = ts.GetBuffer();
+							}
+						}
+
 						if(index == 0 && protoflags != ProtocolFlags.Rencode)
 							throw new NotSupportedException();
 						if(index != 0) {

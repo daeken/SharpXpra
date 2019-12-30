@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 
 namespace SharpXpra {
 	public partial class Client<CompositorT, WindowT>
@@ -32,8 +34,7 @@ namespace SharpXpra {
 
 		[Handler("hello")]
 		void HandleHello(Dictionary<object, object> capabilities) {
-			//foreach(var kv in capabilities)
-			//	Compositor.Log($"{kv.Key.ToPrettyString()} -- {kv.Value.ToPrettyString()}");
+			Compositor.Log(capabilities.ToPrettyString());
 		}
 
 		// TODO: We really should just be keeping a free list around and only rearranging when a new window won't fit
@@ -115,6 +116,7 @@ namespace SharpXpra {
 			if(window == null) return;
 			window.Closing();
 			Compositor.Windows.Remove(window);
+			Compositor.WindowWasClosed();
 		}
 
 		[Handler("startup-complete")]
@@ -127,7 +129,14 @@ namespace SharpXpra {
 		[Handler("draw")]
 		void HandleDraw(int wid, int x, int y, int w, int h, string coding, byte[] data, int packet_sequence,
 			int rowstride, Dictionary<object, object> options) {
-			Compositor.Log($"Got draw! {wid} {x}x{y} {w}x{h} {coding.ToPrettyString()} {packet_sequence} {rowstride}");
+			//Compositor.Log($"Got draw! {wid} {x}x{y} {w}x{h} {coding.ToPrettyString()} {packet_sequence} {rowstride}");
+			if(options.ContainsKey("zlib")) {
+				var buf = new byte[w * h * 3];
+				using var ms = new MemoryStream(data, 2, data.Length - 6);
+				using var ds = new DeflateStream(ms, CompressionMode.Decompress);
+				ds.Read(buf, 0, w * h * 3);
+				data = buf;
+			}
 			if(rowstride != w * 3)
 				throw new NotImplementedException($"Rowstride != w * 3: {rowstride} vs {w} ({h} {coding} {x} {y})");
 			var encoding = coding switch {
@@ -170,25 +179,50 @@ namespace SharpXpra {
 			var window = Compositor.Windows.First(window => window.Id == wid);
 			var (px, py) = window.Position;
 			//Compositor.Log($"Sending mouse move: {wid} {px + x} {py + y}");
-			Send("pointer-position", wid, new List<object> { px + x, py + y }, new List<object>(),
+			Send("pointer-position", wid, new List<object> { px + x, py + y }, Compositor.Modifiers,
 				buttons.Select(x => (object) x).ToList());
 		}
 
 		public void SendMouseButton(int wid, int x, int y, int button, bool pressed) {
 			var window = Compositor.Windows.First(window => window.Id == wid);
 			var (px, py) = window.Position;
-			Send("button-action", wid, button, pressed, new List<object> { px + x, py + y }, new List<object>());
+			Send("button-action", wid, button, pressed, new List<object> { px + x, py + y }, Compositor.Modifiers);
+		}
+
+		string RemapKeyName(string name) {
+			if(name.StartsWith("NUM"))
+				return name.Substring(3);
+			if(name.StartsWith("NP"))
+				return name.Substring(2);
+			return name;
+		}
+
+		public void SendKeyAction(int wid, Keycode keycode, bool pressed) {
+			var name = RemapKeyName(Enum.GetName(typeof(Keycode), keycode));
+			Send("key-action", wid, name, pressed, Compositor.Modifiers, (int) keycode, name, (int) keycode, 0);
 		}
 
 		void Send(params object[] args) => Connection.Send(args.ToList());
+
+		List<object> Keycodes => typeof(Keycode).GetFields(BindingFlags.Public | BindingFlags.Static)
+			.Select(x => (x.Name, Value: x.GetRawConstantValue()))
+			.Select(x => (object) new List<object> { x.Value, RemapKeyName(x.Name), x.Value, 0, 0 }).ToList();
 
 		void SendHello() =>
 			Connection.Send(new List<object> {
 				"hello", new Dictionary<object, object> {
 					["version"] = "4.0",
 					["encodings"] = new List<object> { "rgb32", "rgb24" },
+					//["lz4"] = true,
+					["zlib"] = true,
 					["rencode"] = true,
 					["client_type"] = "SharpXpra XR",
+					
+					["keyboard"] = true,
+					["xkbmap_layout"] = "us", 
+					["xkbmap_keycodes"] = Keycodes,
+					["xkbmap_print"] = "", 
+					["xkbmap_query"] = "", 
 				}
 			});
 	}

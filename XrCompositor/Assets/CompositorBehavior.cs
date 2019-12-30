@@ -15,10 +15,13 @@ public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> 
 	protected override UnityBaseWindow ConstructPopup(int wid, UnityBaseWindow parent, int x, int y) =>
 		new UnityPopup(this, wid, parent, x, y);
 
+	public override void WindowWasClosed() => SpatiallyArrangeWindows();
+
 	public void SpatiallyArrangeWindows() {
 		var factor = 1.2f / 100;
 		var circumference = TrueWindows.Select(x => x.BufferSize.W * factor).Sum();
 		var radius = circumference / Mathf.PI / 2 * factor * 100f;
+		radius = Mathf.Max(radius, 5f);
 		var i = 0f;
 		var step = Mathf.PI * 2 / circumference;
 		foreach(var window in TrueWindows) {
@@ -58,7 +61,6 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 		if(Compositor.Behavior.CurrentHoverWindow == this)
 			Compositor.Behavior.CurrentHoverWindow = null;
 		Object.Destroy(Window);
-		Compositor.SpatiallyArrangeWindows();
 	}
 
 	public override void Damage(int x, int y, int w, int h, PixelEncoding encoding, byte[] data) {
@@ -79,12 +81,12 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 			SurfaceTexture.LoadRawTextureData(data);
 			SurfaceTexture.Apply();
 			Pixels = new byte[w * h * 3];
-			data.CopyTo(Pixels, 0);
+			Array.Copy(data, 0, Pixels, 0, w * h * 3);
 		} else {
 			if(x == 0 && y == 0 && w == BufferSize.W && h == BufferSize.H)
-				data.CopyTo(Pixels, 0);
+				Array.Copy(data, 0, Pixels, 0, w * h * 3);
 			else if(w == BufferSize.W)
-				data.CopyTo(Pixels, y * BufferSize.W * 3);
+				Array.Copy(data, 0, Pixels, y * BufferSize.W * 3, w * h * 3);
 			else
 				for(var i = 0; i < h; ++i)
 					Array.Copy(data, i * w * 3, Pixels, (y + i) * BufferSize.W * 3 + x * 3, w * 3);
@@ -163,6 +165,7 @@ public class CompositorBehavior : MonoBehaviour {
 	public UnityBaseWindow CurrentHoverWindow;
 	(int X, int Y) WindowMousePosition;
 	bool[] ButtonState = new bool[7];
+	bool[] KeyState = new bool[512];
 	
 	void Start() {
 		Compositor = new UnityCompositor(this);
@@ -170,10 +173,10 @@ public class CompositorBehavior : MonoBehaviour {
 	}
 
 	void Update() {
-		var changed = new bool[ButtonState.Length];
+		var buttonChanged = new bool[ButtonState.Length];
 		for(var i = 1; i < ButtonState.Length; ++i) {
 			var state = Input.GetMouseButton(i - 1);
-			changed[i] = ButtonState[i] != state;
+			buttonChanged[i] = ButtonState[i] != state;
 			ButtonState[i] = state;
 		}
 		if(MousePosition != Input.mousePosition) {
@@ -192,13 +195,32 @@ public class CompositorBehavior : MonoBehaviour {
 					}
 			}
 		}
-		if(CurrentHoverWindow != null)
+
+		var keyChanged = new bool[KeyState.Length];
+		for(var i = 0; i < KeyState.Length; ++i) {
+			var state = Input.GetKey((KeyCode) i);
+			keyChanged[i] = KeyState[i] != state;
+			KeyState[i] = state;
+		}
+
+		if(CurrentHoverWindow != null) {
 			for(var i = 0; i < ButtonState.Length; ++i)
-				if(changed[i]) {
-					Debug.Log($"Button state changed: {i} == {ButtonState[i]}");
+				if(buttonChanged[i])
 					CurrentHoverWindow.MouseButton(WindowMousePosition.X, WindowMousePosition.Y, i, ButtonState[i]);
+			for(var i = 0; i < KeyState.Length; ++i)
+				if(keyChanged[i]) {
+					var translated = Translate((KeyCode) i);
+					if(translated == Keycode.Unknown) {
+						Debug.Log($"Unknown key {(KeyCode) i} ({i})");
+						continue;
+					}
+					if(KeyState[i])
+						CurrentHoverWindow.KeyDown(translated);
+					else
+						CurrentHoverWindow.KeyUp(translated);
 				}
-		
+		}
+
 		if(Input.GetKey(KeyCode.LeftArrow))
 			Camera.main.transform.Rotate(Vector3.up, -2);
 		if(Input.GetKey(KeyCode.RightArrow))
@@ -208,4 +230,87 @@ public class CompositorBehavior : MonoBehaviour {
 	}
 
 	void OnDestroy() => Client.Disconnect();
+
+	bool IsModifier(Keycode kc) {
+		switch(kc) {
+			case Keycode.Control_L:
+			case Keycode.Alt_L:
+			case Keycode.Menu:
+			case Keycode.Shift_L:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	Keycode Translate(KeyCode key) {
+		switch(key) {
+			case KeyCode.A: return Keycode.a;
+			case KeyCode.B: return Keycode.b;
+			case KeyCode.C: return Keycode.c;
+			case KeyCode.D: return Keycode.d;
+			case KeyCode.E: return Keycode.e;
+			case KeyCode.F: return Keycode.f;
+			case KeyCode.G: return Keycode.g;
+			case KeyCode.H: return Keycode.h;
+			case KeyCode.I: return Keycode.i;
+			case KeyCode.J: return Keycode.j;
+			case KeyCode.K: return Keycode.k;
+			case KeyCode.L: return Keycode.l;
+			case KeyCode.M: return Keycode.m;
+			case KeyCode.N: return Keycode.n;
+			case KeyCode.O: return Keycode.o;
+			case KeyCode.P: return Keycode.p;
+			case KeyCode.Q: return Keycode.q;
+			case KeyCode.R: return Keycode.r;
+			case KeyCode.S: return Keycode.s;
+			case KeyCode.T: return Keycode.t;
+			case KeyCode.U: return Keycode.u;
+			case KeyCode.V: return Keycode.v;
+			case KeyCode.W: return Keycode.w;
+			case KeyCode.X: return Keycode.x;
+			case KeyCode.Y: return Keycode.y;
+			case KeyCode.Z: return Keycode.z;
+			case KeyCode.Return: return Keycode.Return;
+			case KeyCode.Backspace: return Keycode.BackSpace;
+			case KeyCode.Space: return Keycode.space;
+			case KeyCode.Minus: return Keycode.minus;
+			case KeyCode.Alpha0: return Keycode.NUM0;
+			case KeyCode.Alpha1: return Keycode.NUM1;
+			case KeyCode.Alpha2: return Keycode.NUM2;
+			case KeyCode.Alpha3: return Keycode.NUM3;
+			case KeyCode.Alpha4: return Keycode.NUM4;
+			case KeyCode.Alpha5: return Keycode.NUM5;
+			case KeyCode.Alpha6: return Keycode.NUM6;
+			case KeyCode.Alpha7: return Keycode.NUM7;
+			case KeyCode.Alpha8: return Keycode.NUM8;
+			case KeyCode.Alpha9: return Keycode.NUM9;
+			case KeyCode.BackQuote: return Keycode.asciitilde;
+			case KeyCode.Backslash: return Keycode.backslash;
+			case KeyCode.LeftBracket: return Keycode.bracketleft;
+			case KeyCode.RightBracket: return Keycode.bracketright;
+			case KeyCode.LeftParen: return Keycode.parenleft;
+			case KeyCode.RightParen: return Keycode.parenright;
+			case KeyCode.Comma: return Keycode.comma;
+			case KeyCode.Period: return Keycode.period;
+			case KeyCode.Slash: return Keycode.slash;
+			case KeyCode.Equals: return Keycode.equal;
+			case KeyCode.Semicolon: return Keycode.semicolon;
+			case KeyCode.Quote: return Keycode.apostrophe;
+			case KeyCode.LeftControl: return Keycode.Control_L;
+			case KeyCode.RightControl: return Keycode.Control_L;
+			case KeyCode.LeftAlt: return Keycode.Alt_L;
+			case KeyCode.RightAlt: return Keycode.Alt_L;
+			case KeyCode.LeftShift: return Keycode.Shift_L;
+			case KeyCode.RightShift: return Keycode.Shift_L;
+			case KeyCode.UpArrow: return Keycode.Up;
+			case KeyCode.DownArrow: return Keycode.Down;
+			case KeyCode.LeftArrow: return Keycode.Left;
+			case KeyCode.RightArrow: return Keycode.Right;
+			case KeyCode.Tab: return Keycode.Tab;
+			case KeyCode.Escape: return Keycode.Escape;
+			default:
+				return Keycode.Unknown;
+		}
+	}
 }

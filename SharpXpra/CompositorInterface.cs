@@ -16,6 +16,14 @@ namespace SharpXpra {
 		public List<WindowT> PopupWindows => Windows.Where(x => x.IsPopup).ToList();
 		public Client<CompositorT, WindowT> Client;
 
+		internal bool ControlHeld, AltHeld, MetaHeld, ShiftHeld;
+		internal List<object> Modifiers => new List<object> {
+			ControlHeld ? "control" : "",
+			AltHeld ? "alt" : "", 
+			MetaHeld ? "meta" : "", 
+			ShiftHeld ? "shift" : ""
+		};
+
 		public WindowT CreateWindow(int wid) {
 			var window = ConstructWindow(wid);
 			Windows.Add(window);
@@ -31,6 +39,7 @@ namespace SharpXpra {
 		protected abstract WindowT ConstructWindow(int wid);
 		protected abstract WindowT ConstructPopup(int wid, WindowT parent, int x, int y);
 		
+		public virtual void WindowWasClosed() {}
 		public virtual void Log(string message) {}
 		public virtual void Error(string message) {}
 	}
@@ -67,6 +76,36 @@ namespace SharpXpra {
 		public void MouseMove(int x, int y, bool[] buttons) => Compositor.Client.SendMouseMove(Id, x, y, buttons);
 		public void MouseButton(int x, int y, int button, bool pressed) =>
 			Compositor.Client.SendMouseButton(Id, x, y, button, pressed);
+
+		public void KeyDown(Keycode key) {
+			switch(key) {
+				case Keycode.Control_L:
+					Compositor.ControlHeld = true;
+					break;
+				case Keycode.Alt_L:
+					Compositor.AltHeld = true;
+					break;
+				case Keycode.Shift_L:
+					Compositor.ShiftHeld = true;
+					break;
+			}
+			Compositor.Client.SendKeyAction(Id, key, true);
+		}
+
+		public void KeyUp(Keycode key) {
+			switch(key) {
+				case Keycode.Control_L:
+					Compositor.ControlHeld = false;
+					break;
+				case Keycode.Alt_L:
+					Compositor.AltHeld = false;
+					break;
+				case Keycode.Shift_L:
+					Compositor.ShiftHeld = false;
+					break;
+			}
+			Compositor.Client.SendKeyAction(Id, key, false);
+		}
 
 		protected BaseWindow(CompositorT compositor, int id, bool isPopup) {
 			Compositor = compositor;
