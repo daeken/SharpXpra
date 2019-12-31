@@ -1,6 +1,7 @@
 namespace SharpXpra {
 	public enum Keycode {
 		Unknown = -1, 
+		IGNORE = -2, 
 		BackSpace = 8,
 		Tab = 9,
 		KP_Begin = 12,
@@ -110,6 +111,6 @@ namespace SharpXpra {
 		NP6 = 102, 
 		NP7 = 103, 
 		NP8 = 104, 
-		NP9 = 105, 
+		NP9 = 105,
 	}
 }

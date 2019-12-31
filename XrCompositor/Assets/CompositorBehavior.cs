@@ -169,7 +169,7 @@ public class CompositorBehavior : MonoBehaviour {
 	
 	void Start() {
 		Compositor = new UnityCompositor(this);
-		Client = new Client<UnityCompositor, UnityBaseWindow>("10.0.0.200", 10000, Compositor);
+		Client = new Client<UnityCompositor, UnityBaseWindow>("10.0.0.50", 10000, Compositor);
 	}
 
 	void Update() {
@@ -214,17 +214,19 @@ public class CompositorBehavior : MonoBehaviour {
 						Debug.Log($"Unknown key {(KeyCode) i} ({i})");
 						continue;
 					}
+					if(translated == Keycode.IGNORE)
+						continue;
 					if(KeyState[i])
 						CurrentHoverWindow.KeyDown(translated);
 					else
 						CurrentHoverWindow.KeyUp(translated);
 				}
+		} else {
+			if(Input.GetKey(KeyCode.LeftArrow))
+				Camera.main.transform.Rotate(Vector3.up, -2);
+			if(Input.GetKey(KeyCode.RightArrow))
+				Camera.main.transform.Rotate(Vector3.up, 2);
 		}
-
-		if(Input.GetKey(KeyCode.LeftArrow))
-			Camera.main.transform.Rotate(Vector3.up, -2);
-		if(Input.GetKey(KeyCode.RightArrow))
-			Camera.main.transform.Rotate(Vector3.up, 2);
 
 		Client.Update();
 	}
@@ -309,6 +311,18 @@ public class CompositorBehavior : MonoBehaviour {
 			case KeyCode.RightArrow: return Keycode.Right;
 			case KeyCode.Tab: return Keycode.Tab;
 			case KeyCode.Escape: return Keycode.Escape;
+			case KeyCode.Home: return Keycode.Home;
+			case KeyCode.End: return Keycode.End;
+			case KeyCode.PageUp: return Keycode.Prior;
+			case KeyCode.PageDown: return Keycode.Next;
+			case KeyCode.Mouse0:
+			case KeyCode.Mouse1:
+			case KeyCode.Mouse2:
+			case KeyCode.Mouse3:
+			case KeyCode.Mouse4:
+			case KeyCode.Mouse5:
+			case KeyCode.Mouse6:
+				return Keycode.IGNORE;
 			default:
 				return Keycode.Unknown;
 		}
