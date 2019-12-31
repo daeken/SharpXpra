@@ -1,13 +1,22 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using SharpXpra;
 using TMPro;
+using MoonSharp.Interpreter;
+using MoonSharp.Interpreter.Loaders;
+using UnityEditor;
 using Object = UnityEngine.Object;
 
 public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> {
 	public readonly CompositorBehavior Behavior;
 	public UnityWindow Focused;
+
+	public event Action<UnityWindow> WindowShown;
+	public event Action<UnityWindow> WindowLost;
 
 	public UnityCompositor(CompositorBehavior behavior) => Behavior = behavior;
 	
@@ -16,6 +25,9 @@ public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> 
 		new UnityPopup(this, wid, parent, x, y);
 
 	public override void WindowWasClosed() => SpatiallyArrangeWindows();
+
+	internal void TriggerWindowShown(UnityWindow window) => WindowShown?.Invoke(window);
+	internal void TriggerWindowLost(UnityWindow window) => WindowLost?.Invoke(window);
 
 	public void SpatiallyArrangeWindows() {
 		var factor = 1.2f / 100;
@@ -61,6 +73,8 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 		if(Compositor.Behavior.CurrentHoverWindow == this)
 			Compositor.Behavior.CurrentHoverWindow = null;
 		Object.Destroy(Window);
+		if(!IsPopup)
+			Compositor.TriggerWindowLost((UnityWindow) this);
 	}
 
 	public override void Damage(int x, int y, int w, int h, PixelEncoding encoding, byte[] data) {
@@ -97,6 +111,8 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 		if(!Initialized) {
 			Window.SetActive(true);
 			Initialized = true;
+			if(!IsPopup)
+				Compositor.TriggerWindowShown((UnityWindow) this);
 		}
 	}
 	
@@ -166,10 +182,87 @@ public class CompositorBehavior : MonoBehaviour {
 	(int X, int Y) WindowMousePosition;
 	bool[] ButtonState = new bool[7];
 	bool[] KeyState = new bool[512];
-	
+
+	readonly Dictionary<string,
+			List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>, DynValue)>>
+		LoadedScripts =
+			new Dictionary<string, List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>,
+				DynValue)>>();
+	IScriptLoader Loader;
+	FileSystemWatcher Watcher;
+
+	FieldInfo AddField, RemoveField, ObjectField;
+
 	void Start() {
 		Compositor = new UnityCompositor(this);
 		Client = new Client<UnityCompositor, UnityBaseWindow>("10.0.0.50", 10000, Compositor);
+		
+		var eft = typeof(UserData).Assembly.GetType("MoonSharp.Interpreter.Interop.StandardDescriptors.EventFacade");
+		AddField = eft.GetField("m_AddCallback", BindingFlags.Instance | BindingFlags.NonPublic);
+		RemoveField = eft.GetField("m_RemoveCallback", BindingFlags.Instance | BindingFlags.NonPublic);
+		ObjectField = eft.GetField("m_Object", BindingFlags.Instance | BindingFlags.NonPublic);
+		
+		UserData.RegisterType<UnityCompositor>();
+		UserData.RegisterType<UnityBaseWindow>();
+		UserData.RegisterType<UnityWindow>();
+		UserData.RegisterType<UnityPopup>();
+		Loader = new FileSystemScriptLoader();
+		var dir = "Assets/Scripts";
+		foreach(var fn in Directory.GetFiles(dir, "*.lua"))
+			LoadScript(fn);
+		Watcher = new FileSystemWatcher {
+			Path = dir, 
+			EnableRaisingEvents = true
+		};
+		Watcher.Created += (_, args) => LoadScript(dir + "/" + args.Name);
+		Watcher.Changed += (_, args) => {
+			lock(LoadedScripts) {
+				var fn = dir + "/" + args.Name;
+				UnloadScript(fn);
+				LoadScript(fn);
+			}
+		};
+		Watcher.Deleted += (_, args) => {
+			lock(LoadedScripts)
+				UnloadScript(dir + "/" + args.Name);
+		};
+		Watcher.Renamed += (_, args) => {
+			lock(LoadedScripts) {
+				var ofn = dir + "/" + args.OldName;
+				var nfn = dir + "/" + args.Name;
+				if(LoadedScripts.TryGetValue(ofn, out var list)) {
+					LoadedScripts[nfn] = list;
+					LoadedScripts.Remove(ofn);
+				}
+			}
+		};
+	}
+
+	void LoadScript(string fn) {
+		try {
+			var script = new Script();
+			script.Options.ScriptLoader = Loader;
+			var cbs = LoadedScripts[fn] =
+				new List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>, DynValue)>();
+			var bind = (Action<object, DynValue>) ((ef, func) => {
+				var addCb = (Func<object, ScriptExecutionContext, CallbackArguments, DynValue>) AddField.GetValue(ef);
+				var removeCb = (Func<object, ScriptExecutionContext, CallbackArguments, DynValue>) RemoveField.GetValue(ef);
+				var obj = ObjectField.GetValue(ef);
+				addCb(obj, null, new CallbackArguments(new List<DynValue> { func }, false));
+				cbs.Add((obj, removeCb, func));
+			});
+			script.Globals["compositor"] = Compositor;
+			script.Globals["bind"] = bind;
+			script.DoFile(fn);
+		} catch(Exception e) {
+			Debug.LogError($"MoonSharp script {fn.ToPrettyString()} threw exception: {e}");
+		}
+	}
+
+	void UnloadScript(string fn) {
+		foreach(var (obj, cb, func) in LoadedScripts[fn])
+			cb(obj, null, new CallbackArguments(new List<DynValue> { func }, false));
+		LoadedScripts.Remove(fn);
 	}
 
 	void Update() {
@@ -231,18 +324,9 @@ public class CompositorBehavior : MonoBehaviour {
 		Client.Update();
 	}
 
-	void OnDestroy() => Client.Disconnect();
-
-	bool IsModifier(Keycode kc) {
-		switch(kc) {
-			case Keycode.Control_L:
-			case Keycode.Alt_L:
-			case Keycode.Menu:
-			case Keycode.Shift_L:
-				return true;
-			default:
-				return false;
-		}
+	void OnDestroy() {
+		Client.Disconnect();
+		Watcher.EnableRaisingEvents = false;
 	}
 
 	Keycode Translate(KeyCode key) {

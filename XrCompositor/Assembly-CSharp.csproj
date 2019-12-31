@@ -865,6 +865,10 @@
  </Reference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="Assembly-CSharp-firstpass.csproj">
+      <Project>{3F8CD044-C275-4D25-A926-32CCF3C4FBE3}</Project>
+      <Name>Assembly-CSharp-firstpass</Name>
+    </ProjectReference>
     <ProjectReference Include="Oculus.VR.Editor.csproj">
       <Project>{D7F29EF5-6B97-F325-0319-F9A4E94C6CDF}</Project>
       <Name>Oculus.VR.Editor</Name>
