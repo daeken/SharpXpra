@@ -17,6 +17,7 @@ public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> 
 
 	public event Action<UnityWindow> WindowShown;
 	public event Action<UnityWindow> WindowLost;
+	public event Action<UnityWindow> WindowResized;
 
 	public UnityCompositor(CompositorBehavior behavior) => Behavior = behavior;
 	
@@ -24,24 +25,9 @@ public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> 
 	protected override UnityBaseWindow ConstructPopup(int wid, UnityBaseWindow parent, int x, int y) =>
 		new UnityPopup(this, wid, parent, x, y);
 
-	public override void WindowWasClosed() => SpatiallyArrangeWindows();
-
 	internal void TriggerWindowShown(UnityWindow window) => WindowShown?.Invoke(window);
 	internal void TriggerWindowLost(UnityWindow window) => WindowLost?.Invoke(window);
-
-	public void SpatiallyArrangeWindows() {
-		var factor = 1.2f / 100;
-		var circumference = TrueWindows.Select(x => x.BufferSize.W * factor).Sum();
-		var radius = circumference / Mathf.PI / 2 * factor * 100f;
-		radius = Mathf.Max(radius, 5f);
-		var i = 0f;
-		var step = Mathf.PI * 2 / circumference;
-		foreach(var window in TrueWindows) {
-			window.Window.transform.position = new Vector3(-radius * Mathf.Sin(i), 0, radius * Mathf.Cos(i));
-			window.Window.transform.rotation = Quaternion.AngleAxis(Mathf.Rad2Deg * i, Vector3.down);
-			i += window.BufferSize.W * factor * step;
-		}
-	}
+	internal void TriggerWindowResized(UnityWindow window) => WindowResized?.Invoke(window);
 
 	public override void Log(string message) => Debug.Log(message);
 	public override void Error(string message) => Debug.LogError(message);
@@ -81,7 +67,8 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 		if(!NewBufferSize && Pixels == null) return;
 		
 		if(NewBufferSize) {
-			Compositor.SpatiallyArrangeWindows();
+			if(!IsPopup)
+				Compositor.TriggerWindowResized((UnityWindow) this);
 			var ss = new Vector3(BufferSize.W / 100f, BufferSize.H / 100f, 1);
 			SurfaceCorner.transform.localPosition = new Vector3(-ss.x / 2, ss.y / 2, 0);
 			Surface.transform.localPosition = new Vector3(ss.x / 2, -ss.y / 2, 0);
@@ -126,7 +113,7 @@ public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWin
 }
 
 public class UnityWindow : UnityBaseWindow {
-	readonly GameObject Topbar, TitleText;
+	readonly GameObject Topbar;
 	public readonly Collider TopbarCollider;
 	readonly RectTransform TitleTransform;
 	readonly TextMeshPro TextMesh;
@@ -134,9 +121,9 @@ public class UnityWindow : UnityBaseWindow {
 	public UnityWindow(UnityCompositor compositor, int id) : base(compositor, id, false) {
 		Topbar = Window.transform.Find("Topbar").gameObject;
 		TopbarCollider = Topbar.GetComponent<Collider>();
-		TitleText = Window.transform.Find("TitleText").gameObject;
-		TextMesh = TitleText.GetComponent<TextMeshPro>();
-		TitleTransform = TitleText.GetComponent<RectTransform>();
+		var titleText = Window.transform.Find("TitleText").gameObject;
+		TextMesh = titleText.GetComponent<TextMeshPro>();
+		TitleTransform = titleText.GetComponent<RectTransform>();
 	}
 
 	protected override void UpdateTitle() => TextMesh.SetText(Title);
@@ -191,7 +178,30 @@ public class CompositorBehavior : MonoBehaviour {
 	IScriptLoader Loader;
 	FileSystemWatcher Watcher;
 
+	readonly HashSet<string> NeedLoad = new HashSet<string>();
+
 	FieldInfo AddField, RemoveField, ObjectField;
+
+	readonly List<string> RegisteredTypes = new List<string>();
+	void RecursiveRegister(Type type) {
+		bool CheckGeneric(Type gtype) => gtype == typeof(List<>) || gtype == typeof(Dictionary<,>);
+		if(RegisteredTypes.Contains(type.FullName))
+			return;
+		RegisteredTypes.Add(type.FullName);
+		if((type.IsConstructedGenericType && !CheckGeneric(type.GetGenericTypeDefinition())) ||
+		   (!type.IsConstructedGenericType && type.Assembly != typeof(string).Assembly))
+			UserData.RegisterType(type);
+
+		if(type.IsConstructedGenericType)
+			foreach(var gtype in type.GenericTypeArguments)
+				RecursiveRegister(gtype);
+		foreach(var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+			RecursiveRegister(field.FieldType);
+		foreach(var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+			RecursiveRegister(property.PropertyType);
+	}
+
+	void RecursiveRegister<T>() => RecursiveRegister(typeof(T));
 
 	void Start() {
 		Compositor = new UnityCompositor(this);
@@ -202,24 +212,27 @@ public class CompositorBehavior : MonoBehaviour {
 		RemoveField = eft.GetField("m_RemoveCallback", BindingFlags.Instance | BindingFlags.NonPublic);
 		ObjectField = eft.GetField("m_Object", BindingFlags.Instance | BindingFlags.NonPublic);
 		
-		UserData.RegisterType<UnityCompositor>();
-		UserData.RegisterType<UnityBaseWindow>();
-		UserData.RegisterType<UnityWindow>();
-		UserData.RegisterType<UnityPopup>();
+		RecursiveRegister<UnityCompositor>();
+		RecursiveRegister<UnityBaseWindow>();
+		RecursiveRegister<UnityWindow>();
+		RecursiveRegister<UnityPopup>();
+		RecursiveRegister<Mathf>();
+		Debug.Log("Registered types");
 		Loader = new FileSystemScriptLoader();
 		var dir = "Assets/Scripts";
 		foreach(var fn in Directory.GetFiles(dir, "*.lua"))
 			LoadScript(fn);
 		Watcher = new FileSystemWatcher {
 			Path = dir, 
+			Filter = "*.lua", 
 			EnableRaisingEvents = true
 		};
-		Watcher.Created += (_, args) => LoadScript(dir + "/" + args.Name);
+		Watcher.Created += (_, args) => NeedLoad.Add(dir + "/" + args.Name);
 		Watcher.Changed += (_, args) => {
 			lock(LoadedScripts) {
 				var fn = dir + "/" + args.Name;
 				UnloadScript(fn);
-				LoadScript(fn);
+				NeedLoad.Add(fn);
 			}
 		};
 		Watcher.Deleted += (_, args) => {
@@ -253,6 +266,12 @@ public class CompositorBehavior : MonoBehaviour {
 			});
 			script.Globals["compositor"] = Compositor;
 			script.Globals["bind"] = bind;
+			script.Globals["Mathf"] = typeof(Mathf);
+			script.Globals["Vector2"] = typeof(Vector2);
+			script.Globals["Vector3"] = typeof(Vector3);
+			script.Globals["Vector4"] = typeof(Vector4);
+			script.Globals["Quaternion"] = typeof(Quaternion);
+			script.Globals["print"] = (Action<object>) Debug.Log;
 			script.DoFile(fn);
 		} catch(Exception e) {
 			Debug.LogError($"MoonSharp script {fn.ToPrettyString()} threw exception: {e}");
@@ -266,6 +285,10 @@ public class CompositorBehavior : MonoBehaviour {
 	}
 
 	void Update() {
+		foreach(var fn in NeedLoad)
+			LoadScript(fn);
+		NeedLoad.Clear();
+		
 		var buttonChanged = new bool[ButtonState.Length];
 		for(var i = 1; i < ButtonState.Length; ++i) {
 			var state = Input.GetMouseButton(i - 1);
