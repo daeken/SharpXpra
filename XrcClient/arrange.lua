@@ -1,11 +1,11 @@
 function arrangeWindows()
     print('Arranging windows!')
-    factor = 1.2 / 100
+    factor = 1.0 / 100
     circumference = 0
     for i, window in ipairs(compositor.TrueWindows) do
         circumference = circumference + window.BufferSize.Item1 * factor
     end
-    radius = Mathf.Max(circumference / Mathf.PI / 2 * factor * 100, 10)
+    radius = Mathf.Max(circumference / Mathf.PI / 2 * factor * 100, 3)
     i = 0
     step = Mathf.PI * 2 / circumference
     for j, window in ipairs(compositor.TrueWindows) do

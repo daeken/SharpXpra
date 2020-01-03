@@ -29,8 +29,8 @@ public class UnityCompositor : BaseCompositor<UnityCompositor, UnityBaseWindow> 
 	internal void TriggerWindowLost(UnityWindow window) => WindowLost?.Invoke(window);
 	internal void TriggerWindowResized(UnityWindow window) => WindowResized?.Invoke(window);
 
-	public override void Log(string message) => Debug.Log(message);
-	public override void Error(string message) => Debug.LogError(message);
+	public override void Log(string message) => Behavior.Log(message);
+	public override void Error(string message) => Behavior.Error(message);
 }
 
 public abstract class UnityBaseWindow : BaseWindow<UnityCompositor, UnityBaseWindow> {
@@ -170,17 +170,22 @@ public class CompositorBehavior : MonoBehaviour {
 	bool[] ButtonState = new bool[7];
 	bool[] KeyState = new bool[512];
 
+	XrcServer XrcServer;
+
 	readonly Dictionary<string,
 			List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>, DynValue)>>
 		LoadedScripts =
 			new Dictionary<string, List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>,
 				DynValue)>>();
 	IScriptLoader Loader;
-	FileSystemWatcher Watcher;
-
-	readonly HashSet<string> NeedLoad = new HashSet<string>();
 
 	FieldInfo AddField, RemoveField, ObjectField;
+
+	public event Action<bool, string> LogMessage;
+	public void Log(string message) => LogMessage?.Invoke(false, message);
+	public void Error(string message) => LogMessage?.Invoke(true, message);
+	
+	public readonly Queue<Action> JobQueue = new Queue<Action>();
 
 	readonly List<string> RegisteredTypes = new List<string>();
 	void RecursiveRegister(Type type) {
@@ -204,7 +209,14 @@ public class CompositorBehavior : MonoBehaviour {
 	void RecursiveRegister<T>() => RecursiveRegister(typeof(T));
 
 	void Start() {
+		LogMessage += (isError, message) => {
+			if(isError)
+				Debug.LogError(message);
+			else
+				Debug.Log(message);
+		};
 		Compositor = new UnityCompositor(this);
+		XrcServer = new XrcServer(this);
 		Client = new Client<UnityCompositor, UnityBaseWindow>("10.0.0.50", 10000, Compositor);
 		
 		var eft = typeof(UserData).Assembly.GetType("MoonSharp.Interpreter.Interop.StandardDescriptors.EventFacade");
@@ -217,77 +229,68 @@ public class CompositorBehavior : MonoBehaviour {
 		RecursiveRegister<UnityWindow>();
 		RecursiveRegister<UnityPopup>();
 		RecursiveRegister<Mathf>();
-		Debug.Log("Registered types");
+		Log("Registered types");
 		Loader = new FileSystemScriptLoader();
-		var dir = "Assets/Scripts";
-		foreach(var fn in Directory.GetFiles(dir, "*.lua"))
-			LoadScript(fn);
-		Watcher = new FileSystemWatcher {
-			Path = dir, 
-			Filter = "*.lua", 
-			EnableRaisingEvents = true
-		};
-		Watcher.Created += (_, args) => NeedLoad.Add(dir + "/" + args.Name);
-		Watcher.Changed += (_, args) => {
-			lock(LoadedScripts) {
-				var fn = dir + "/" + args.Name;
-				UnloadScript(fn);
-				NeedLoad.Add(fn);
-			}
-		};
-		Watcher.Deleted += (_, args) => {
-			lock(LoadedScripts)
-				UnloadScript(dir + "/" + args.Name);
-		};
-		Watcher.Renamed += (_, args) => {
-			lock(LoadedScripts) {
-				var ofn = dir + "/" + args.OldName;
-				var nfn = dir + "/" + args.Name;
-				if(LoadedScripts.TryGetValue(ofn, out var list)) {
-					LoadedScripts[nfn] = list;
-					LoadedScripts.Remove(ofn);
-				}
-			}
-		};
+		try {
+			foreach(var fn in Directory.GetFiles(Application.persistentDataPath, "*.lua"))
+				LoadScript(fn);
+		} catch(Exception) {
+		}
 	}
 
-	void LoadScript(string fn) {
+	void SetupScriptGlobals(Script script) {
+		script.Globals["compositor"] = Compositor;
+		script.Globals["Mathf"] = typeof(Mathf);
+		script.Globals["Vector2"] = typeof(Vector2);
+		script.Globals["Vector3"] = typeof(Vector3);
+		script.Globals["Vector4"] = typeof(Vector4);
+		script.Globals["Quaternion"] = typeof(Quaternion);
+		script.Globals["print"] = (Action<object>) (obj => Log(obj.ToPrettyString()));
+	}
+
+	public void LoadScript(string fn) {
+		if(LoadedScripts.ContainsKey(fn))
+			UnloadScript(fn);
 		try {
 			var script = new Script();
 			script.Options.ScriptLoader = Loader;
 			var cbs = LoadedScripts[fn] =
 				new List<(object, Func<object, ScriptExecutionContext, CallbackArguments, DynValue>, DynValue)>();
-			var bind = (Action<object, DynValue>) ((ef, func) => {
+			script.Globals["bind"] = (Action<object, DynValue>) ((ef, func) => {
 				var addCb = (Func<object, ScriptExecutionContext, CallbackArguments, DynValue>) AddField.GetValue(ef);
 				var removeCb = (Func<object, ScriptExecutionContext, CallbackArguments, DynValue>) RemoveField.GetValue(ef);
 				var obj = ObjectField.GetValue(ef);
 				addCb(obj, null, new CallbackArguments(new List<DynValue> { func }, false));
 				cbs.Add((obj, removeCb, func));
 			});
-			script.Globals["compositor"] = Compositor;
-			script.Globals["bind"] = bind;
-			script.Globals["Mathf"] = typeof(Mathf);
-			script.Globals["Vector2"] = typeof(Vector2);
-			script.Globals["Vector3"] = typeof(Vector3);
-			script.Globals["Vector4"] = typeof(Vector4);
-			script.Globals["Quaternion"] = typeof(Quaternion);
-			script.Globals["print"] = (Action<object>) Debug.Log;
+			SetupScriptGlobals(script);
 			script.DoFile(fn);
 		} catch(Exception e) {
-			Debug.LogError($"MoonSharp script {fn.ToPrettyString()} threw exception: {e}");
+			Error($"MoonSharp script {fn.ToPrettyString()} threw exception: {e}");
 		}
 	}
 
-	void UnloadScript(string fn) {
+	public void RunScriptCode(string code) {
+		try {
+			var script = new Script();
+			script.Options.ScriptLoader = Loader;
+			script.Globals["bind"] = (Action<object, DynValue>) ((ef, func) => {});
+			SetupScriptGlobals(script);
+			script.DoString(code);
+		} catch(Exception e) {
+			Error($"MoonSharp script `code` threw exception: {e}");
+		}
+	}
+
+	public void UnloadScript(string fn) {
 		foreach(var (obj, cb, func) in LoadedScripts[fn])
 			cb(obj, null, new CallbackArguments(new List<DynValue> { func }, false));
 		LoadedScripts.Remove(fn);
 	}
 
 	void Update() {
-		foreach(var fn in NeedLoad)
-			LoadScript(fn);
-		NeedLoad.Clear();
+		while(JobQueue.Count != 0)
+			JobQueue.Dequeue()();
 		
 		var buttonChanged = new bool[ButtonState.Length];
 		for(var i = 1; i < ButtonState.Length; ++i) {
@@ -327,7 +330,7 @@ public class CompositorBehavior : MonoBehaviour {
 				if(keyChanged[i]) {
 					var translated = Translate((KeyCode) i);
 					if(translated == Keycode.Unknown) {
-						Debug.Log($"Unknown key {(KeyCode) i} ({i})");
+						Log($"Unknown key {(KeyCode) i} ({i})");
 						continue;
 					}
 					if(translated == Keycode.IGNORE)
@@ -349,7 +352,7 @@ public class CompositorBehavior : MonoBehaviour {
 
 	void OnDestroy() {
 		Client.Disconnect();
-		Watcher.EnableRaisingEvents = false;
+		XrcServer.Stop();
 	}
 
 	Keycode Translate(KeyCode key) {
